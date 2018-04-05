@@ -1,5 +1,4 @@
 import weka.core.Capabilities;
-import weka.core.Capabilities.Capability;
 import weka.core.Instance;
 import weka.core.Instances;
 
@@ -13,8 +12,9 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
     private Instances data;
     private String inputFileName;
     private int numTrainingEpochs;
-    private double[][] weights;
     private int numWeightUpdates = 0;
+    private int bias = 1;
+    private double[][] weights;
     private boolean debug = false;
 
     public MulticlassPerceptron(String[] options) {
@@ -23,46 +23,45 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
     }
 
     public void buildClassifier(Instances instances) throws Exception {
+        printHeader();
+
         data = new Instances(instances);
-        int numClasses = data.numClasses();
-        int numAttributes = data.numAttributes(); // Includes class attribute
-        int numInst = data.numInstances();
+        double correction;
+        int predictedClass, correctClass, numAttributes = data.numAttributes(); // Includes class attribute
 
         // Create a weight vector for each class with size equal to number of attributes plus a bias with each weight initialized to zero
-        weights = new double[numClasses][numAttributes];
+        weights = new double[data.numClasses()][numAttributes];
 
-        Instance inst;
-        int predictedClass, correctClass;
-        for(int k = 0; k < numTrainingEpochs; k++) {
-            System.out.print("Epoch\t" + (k+1) + ": ");
 
-            for(int i = 0; i < numInst; i++) {
-                inst =  data.get(i);
+        for(int i = 0; i < numTrainingEpochs; i++) {
+            System.out.print("Epoch\t" + (i+1) + ": ");
+
+            for(Instance inst : instances) {
                 predictedClass = predict(inst);
+                correctClass = (int) inst.classValue();
 
                 if(debug) {
-                    System.out.println("\nDEBUG~~~~ predictedClass = " + predictedClass + ", correctClass = " + inst.classValue());
+                    System.out.println("\n\tDEBUG\t predictedClass = " + predictedClass + ", correctClass = " + inst.classValue());
                 }
 
-                // Update weights if predicted class is wrong
-                correctClass = (int) inst.classValue();
+                // Incorrect prediction, update weights
                 if (predictedClass != correctClass) {
                     System.out.print("0");
 
                     if(debug) {
-                        System.out.println("\nDEBUG~~~~ Wrong Prediction => Update Weights");
-                        System.out.println("DEBUG~~~~ Old Weights:");
+                        System.out.println("\n\tDEBUG\t Wrong Prediction. Old Weights:");
                         System.out.print(appendWeights(new StringBuilder()).toString());
                     }
 
                     numWeightUpdates++;
                     for(int j = 0; j < numAttributes; j++) {
-                        weights[predictedClass][j] -= inst.value(j);
-                        weights[correctClass][j] += inst.value(j);
+                        correction = (j == numAttributes - 1) ? bias : inst.value(j);
+                        weights[predictedClass][j] -= correction;
+                        weights[correctClass][j] += correction;
                     }
 
                     if(debug) {
-                        System.out.println("\nDEBUG~~~~ New Weights");
+                        System.out.println("\n\tDEBUG\t New Weights");
                         System.out.print(appendWeights(new StringBuilder()).toString());
                     }
                 } else {
@@ -75,66 +74,15 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
         }
     }
 
-    @Override
-    public String toString() {
-        String str = "Source File: " + inputFileName + "\nTraining epochs: " + numTrainingEpochs + "\nTotal # weight updates = " + numWeightUpdates + "\n\nFinal weights:\n\n";
-        StringBuilder sb = new StringBuilder(str);
-        sb = appendWeights(sb);
-        return sb.toString();
-    }
-
-    // returns the class probabilities array of the prediction for the given weka.core.Instance object.
-    // If your classifier handles nominal class attributes, then you need to override this method.
-    @Override
-    public double[] distributionForInstance(Instance instance) {
-        double[] result = new double[ data.numClasses() ];
-        result[ predict(instance) ] = 1;
-        return result;
-    }
-
-    // Required concrete implementation
-    @Override
-    public Capabilities getCapabilities() {
-        return null;
-    }
-
-    // Required concrete implementation
-    @Override
-    public double classifyInstance(Instance instance) {
-        return 0;
-    }
-
-    private double[][] convertInstancesToMatrix(Instances instances) {
-        int numInst = instances.numInstances();
-        int numAttributes = instances.numAttributes();
-        double[][] result = new double[numInst][numAttributes];
-        Instance inst;
-
-        for(int i = 0; i < numInst; i++) {
-            inst = data.get(i);
-
-            for (int j = 0; j < numAttributes - 1; j++) {
-                result[i][j] = inst.value(j);
-            }
-
-            // Set the bias
-            result[i][numAttributes - 1] = 1;
-        }
-
-        return result;
-    }
-
     private int computeActivation(double[] w, Instance inst) {
         double sum = 0;
-        double feature = 0;
 
         if(debug) {
             System.out.print("W * F = ");
         }
 
-        for ( int i = 0; i < w.length; i++) {
-            feature = i == w.length-1 ? 1 : inst.value(i);
-            sum += w[i]*feature;
+        for ( int i = 0; i < w.length-1; i++) {
+            sum += w[i] * inst.value(i);
 
             if(debug) {
                 System.out.print(w[i] + " * " + inst.value(i));
@@ -143,6 +91,9 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
                 }
             }
         }
+
+        // last element is bias weight
+        sum += w[w.length-1] * bias;
 
         if(debug) {
             System.out.print(" = " + sum);
@@ -154,11 +105,11 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
     private int predict(Instance inst) {
         int maxActivation = Integer.MIN_VALUE;
         int predictedClass = 0;
-        int currentActivation = 0;
+        int currentActivation;
 
         for(int i = 0; i < inst.numClasses(); i++) {
             if(debug)
-                System.out.print("\nDEBUG~~~~ Class " + i + ": ");
+                System.out.print("\n\tDEBUG\t Class " + i + ": ");
 
             currentActivation = computeActivation(weights[i], inst);
 
@@ -172,7 +123,7 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
                 predictedClass = i;
 
                 if(debug)
-                    System.out.print("\nDEBUG~~~~ Updating Predicted Class to " + i);
+                    System.out.print("\n\tDEBUG\t Updating Predicted Class to " + i);
             }
         }
 
@@ -184,11 +135,51 @@ public class MulticlassPerceptron implements weka.classifiers.Classifier {
             sb.append("Class ").append(i).append(" weights:\t");
 
             for(double weight: weights[i]) {
-                sb.append(weight).append(" ");
+                sb.append(String.format(java.util.Locale.US,"%.3f", weight)).append(" ");
             }
-            sb.append("\n");
+
+            if (i < weights.length-1) {
+                sb.append("\n");
+            }
         }
 
         return sb;
+    }
+
+    private void printHeader() {
+        System.out.println("University of Central Florida");
+        System.out.println("CAP4630 Artifical Intelligence - Spring 2018");
+        System.out.println("Multi-Class Perceptron Classifier by Darian Smalley\n");
+    }
+
+    @Override
+    public String toString() {
+        String str = "Source File: " + inputFileName + "\nTraining epochs: " + numTrainingEpochs + "\nTotal # weight updates = " + numWeightUpdates + "\n\nFinal weights:\n\n";
+        StringBuilder sb = new StringBuilder(str);
+        sb = appendWeights(sb);
+        return sb.toString();
+    }
+
+    @Override
+    public double[] distributionForInstance(Instance instance) {
+        double[] result = new double[ data.numClasses() ];
+        result[ predict(instance) ] = 1;
+        return result;
+    }
+
+    /**
+     * Required concrete implementation
+     */
+    @Override
+    public Capabilities getCapabilities() {
+        return null;
+    }
+
+    /**
+     * Required concrete implementation
+     */
+    @Override
+    public double classifyInstance(Instance instance) {
+        return 0;
     }
 }
